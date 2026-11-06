@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <title>簡易網頁打譜軟體</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            background: #f4f6f9;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 { color: #333; margin-bottom: 10px; }
+        .toolbar {
+            margin-bottom: 20px;
+            background: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .tool-group {
+            display: flex;
+            gap: 5px;
+            border-right: 2px solid #eee;
+            padding-right: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        button, select, input[type="number"] {
+            padding: 6px 10px;
+            font-size: 13px;
+            cursor: pointer;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: #f8f9fa;
+            color: #333;
+            transition: all 0.2s;
+        }
+        button:hover { background: #e2e6ea; }
+        select, input[type="number"] { background: white; width: 125px; text-align: center; }
+        button.active {
+            background: #007bff;
+            color: white;
+            border-color: #006fe6;
+            box-shadow: 0 0 5px rgba(0,123,255,0.4);
+        }
+        button.action-btn {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 8px 14px;
+            font-size: 14px;
+        }
+        button.action-btn:hover { background: #218838; }
+        button.clear {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 8px 14px;
+            font-size: 14px;
+        }
+        button.clear:hover { background: #bd2130; }
+        
+        .score-scroll-container {
+            background: white;
+            width: 900px;
+            max-width: 100%;
+            height: 350px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            overflow-x: auto;
+            position: relative;
+        }
+        #score-container {
+            height: 330px;
+            cursor: crosshair;
+        }
+        .hint {
+            margin-top: 15px;
+            color: #666;
+            font-size: 14px;
+            text-align: center;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>簡易五線譜打譜機</h1>
+    
+    <div class="toolbar">
+        <!-- 譜面結構與速度 -->
+        <div class="tool-group">
+            <span style="font-size: 13px; font-weight: bold;">拍號:</span>
+            <select id="time-signature" onchange="updateTimeSignature()" style="width: 70px;">
+                <option value="4/4">4/4</option>
+                <option value="3/4">3/4</option>
+                <option value="2/4">2/4</option>
+                <option value="6/8">6/8</option>
+            </select>
+            <span style="font-size: 13px; font-weight: bold; margin-left: 5px;">BPM:</span>
+            <input type="number" id="tempo-bpm" value="120" min="40" max="240" step="1" style="width: 60px;">
+            <span style="font-size: 13px; font-weight: bold; margin-left: 5px;">小節:</span>
+            <select id="measure-count" onchange="updateMeasureCount()" style="width: 60px;">
+                <option value="2">2</option>
+                <option value="4" selected>4</option>
+                <option value="6">6</option>
+                <option value="8">8</option>
+            </select>
+        </div>
+
+        <!-- 音符時值選擇 -->
+        <div class="tool-group">
+            <span style="font-size: 13px; font-weight: bold;">時值:</span>
+            <button id="btn-whole" onclick="setDuration('whole')">全</button>
+            <button id="btn-half" onclick="setDuration('half')">二</button>
+            <button id="btn-quarter" class="active" onclick="setDuration('quarter')">四</button>
+            <button id="btn-eighth" onclick="setDuration('eighth')">八</button>
+            <button id="btn-sixteenth" onclick="setDuration('sixteenth')">十六</button>
+        </div>
+
+        <!-- 屬性：附點 -->
+        <div class="tool-group">
+            <button id="btn-dot" onclick="toggleDot()">⚪ 附點</button>
+        </div>
+
+        <!-- 模式切換 -->
+        <div class="tool-group">
+            <span style="font-size: 13px; font-weight: bold;">模式:</span>
+            <button id="mode-note" class="active" onclick="setMode('note')">🎵 音符</button>
+            <button id="mode-rest" onclick="setMode('rest')">𝄾 休止</button>
+            <button id="mode-select" onclick="setMode('select')" style="background:#ffc107; border:none; font-weight:bold;">🛠️ 小節選取</button>
+        </div>
+
+        <!-- 反覆記號工具列 -->
+        <div class="tool-group">
+            <span style="font-size: 13px; font-weight: bold;">反覆:</span>
+            <select id="repeat-tool">
+                <option value="none">清除記號</option>
+                <option value="start">𝄆 迴圈起點</option>
+                <option value="end">𝄇 迴圈終點</option>
+                <option value="closed1">1. 封閉式(一房)</option>
+                <option value="closed2">2. 封閉式(二房)</option>
+                <option value="open1">1. 開放式(一房)</option>
+                <option value="open2">2. 開放式(二房)</option>
+                <option value="open3">3. 開放式(三房)</option>
+                <option value="dc">D.C. 從頭反覆</option>
+            </select>
+            <button onclick="applyRepeatToMeasure()" style="background:#17a2b8; color:white; border:none;">套用</button>
+        </div>
+
+        <!-- 動作按鈕 -->
+        <div style="display: flex; gap: 8px;">
+            <button class="action-btn" onclick="playMusic()">▶ 播放</button>
+            <button class="clear" onclick="clearNotes()">🗑️ 清空</button>
+        </div>
+    </div>
+
+    <!-- 譜面狀態提示列 -->
+    <div id="selection-status" style="margin-bottom: 10px; font-size: 14px; font-weight: bold; color: #007bff; background: #eef4ff; padding: 5px 15px; border-radius: 4px; display: inline-block;">
+        目前選取小節：無
+    </div>
+
+    <!-- 譜面外框 -->
+    <div class="score-scroll-container">
+        <svg id="score-container" viewBox="0 0 800 330" width="800">
+            <g id="structure-group"></g>
+            <rect id="bg-rect" x="0" y="0" width="800" height="330" fill="transparent" />
+            <g id="notes-group"></g>
+        </svg>
+    </div>
+
+    <div class="hint">
+        💡 <b>同小節多重記號提示：</b><br>
+        現在你可以針對**同一個小節**同時套用「迴圈終點 (𝄇)」與「第一房尾（1.）」！系統會自動將雙線冒點與開口朝下的房尾框線完美整合在同一個小節中。
+    </div>
+
+    <script>
+        let steps = []; 
+        let currentDuration = 'quarter';
+        let isDotted = false;
+        let currentMode = 'note';
+        let currentTimeSig = '4/4';
+        let baseMeasureCount = 4;
+        let selectedNoteId = null;
+        let selectedMeasureIndex = null;
+        let nextNoteId = 1;
+
+        // 支援每個小節可同時存在多個屬性標記（改為陣列儲存，例如 ['end', 'closed1']）
+        let measureRepeats = {};
+
+        const noteMap = {
+            90:  { name: 'F5', freq: 698.46 },
+            100: { name: 'E5', freq: 659.25 },
+            110: { name: 'D5', freq: 587.33 },
+            120: { name: 'C5', freq: 523.25 },
+            130: { name: 'B4', freq: 493.88 },
+            140: { name: 'A4', freq: 440.00 },
+            150: { name: 'G4', freq: 392.00 },
+            160: { name: 'F4', freq: 349.23 },
+            170: { name: 'E4', freq: 329.63 },
+            180: { name: 'D4_line', freq: 293.66 },
+            190: { name: 'D4', freq: 293.66 },
+            200: { name: 'C4', freq: 261.63 }
+        };
+
+        const baseBeats = {
+            'whole':         4.0,
+            'half':          2.0,
+            'quarter':       1.0,
+            'eighth':        0.5,
+            'sixteenth':     0.25,
+            'thirty-second': 0.125
+        };
+
+        function getStepBeats(duration, dotted) {
+            let b = baseBeats[duration];
+            return dotted ? b * 1.5 : b;
+        }
+
+        const svg = document.getElementById('score-container');
+        const bgRect = document.getElementById('bg-rect');
+        const notesGroup = document.getElementById('notes-group');
+        const structureGroup = document.getElementById('structure-group');
+
+        const startX = 140;
+        const measureWidth = 180;
+
+        function getMaxBeatsPerMeasure() {
+            if (currentTimeSig === '6/8') return 3.0;
+            let top = parseInt(currentTimeSig.split('/')[0]);
+            return top;
+        }
+
+        function applyRepeatToMeasure() {
+            if (selectedMeasureIndex !== null) {
+                let toolVal = document.getElementById('repeat-tool').value;
+                if (!measureRepeats[selectedMeasureIndex]) {
+                    measureRepeats[selectedMeasureIndex] = [];
+                }
+
+                if (toolVal === 'none') {
+                    delete measureRepeats[selectedMeasureIndex];
+                } else {
+                    // 檢查是否已存在，若無則加入（允許同時存在 end 與 closed1 等組合）
+                    if (toolVal === 'start' || toolVal === 'end' || toolVal === 'dc') {
+                        // 移除同性質的互斥記號
+                        measureRepeats[selectedMeasureIndex] = measureRepeats[selectedMeasureIndex].filter(v => v !== 'start' && v !== 'end' && v !== 'dc');
+                    }
+                    if (toolVal.startsWith('closed') || toolVal.startsWith('open')) {
+                        // 移除其他房尾記號
+                        measureRepeats[selectedMeasureIndex] = measureRepeats[selectedMeasureIndex].filter(v => !v.startsWith('closed') && !v.startsWith('open'));
+                    }
+                    if (!measureRepeats[selectedMeasureIndex].includes(toolVal)) {
+                        measureRepeats[selectedMeasureIndex].push(toolVal);
+                    }
+                }
+                redrawEverything();
+                alert(`已成功將記號套用到第 ${selectedMeasureIndex + 1} 小節！`);
+            } else {
+                alert('請先切換至「小節選取」模式，並點擊畫布上的某個小節來進行選取！');
+            }
+        }
+
+        function updateSelectionStatusText() {
+            let statusEl = document.getElementById('selection-status');
+            if (selectedMeasureIndex !== null) {
+                statusEl.textContent = `🎯 目前選取小節：第 ${selectedMeasureIndex + 1} 小節`;
+                statusEl.style.color = '#28a745';
+                statusEl.style.background = '#e8f8f5';
+            } else {
+                statusEl.textContent = `目前選取小節：無（點擊上方「小節選取」模式來選取小節）`;
+                statusEl.style.color = '#007bff';
+                statusEl.style.background = '#eef4ff';
+            }
+        }
+
+        function calculateLayout() {
+            let maxBeats = getMaxBeatsPerMeasure();
+            let measures = [[]];
+            let currentMeasureBeats = 0;
+
+            steps.forEach(step => {
+                let stepBeats = getStepBeats(step.duration, step.dotted);
+                if (currentMeasureBeats + stepBeats > maxBeats + 0.0001) {
+                    measures.push([step]);
+                    currentMeasureBeats = stepBeats;
+                } else {
+                    measures[measures.length - 1].push(step);
+                    currentMeasureBeats += stepBeats;
+                }
+            });
+
+            let layoutMeasures = [];
+            measures.forEach((mSteps, mIdx) => {
+                let measureStartX = startX + (mIdx * measureWidth);
+                let availableWidth = measureWidth - 30;
+                let stepWidth = mSteps.length > 1 ? availableWidth / (mSteps.length + 1) : availableWidth / 2;
+
+                let processedSteps = mSteps.map((step, sIdx) => {
+                    let assignedX = measureStartX + 20 + ((sIdx + 1) * stepWidth);
+                    return {
+                        ...step,
+                        x: assignedX,
+                        measureIndex: mIdx
+                    };
+                });
+
+                let beamGroups = [];
+                let currentGroup = [];
+                let groupBeats = 0;
+
+                processedSteps.forEach((step) => {
+                    let b = getStepBeats(step.duration, step.dotted);
+                    if (b < 1.0) {
+                        if (currentGroup.length === 0 || groupBeats < 1.0) {
+                            currentGroup.push(step);
+                            groupBeats += b;
+                        } else {
+                            if (currentGroup.length > 0) beamGroups.push(currentGroup);
+                            currentGroup = [step];
+                            groupBeats = b;
+                        }
+                    } else {
+                        if (currentGroup.length > 0) {
+                            beamGroups.push(currentGroup);
+                            currentGroup = [];
+                            groupBeats = 0;
+                        }
+                    }
+                });
+                if (currentGroup.length > 0) beamGroups.push(currentGroup);
+
+                layoutMeasures.push({ steps: processedSteps, beamGroups });
+            });
+
+            return { layoutMeasures, totalMeasures: measures.length };
+        }
+
+        function updateTimeSignature() {
+            currentTimeSig = document.getElementById('time-signature').value;
+            redrawEverything();
+        }
+
+        function updateMeasureCount() {
+            baseMeasureCount = parseInt(document.getElementById('measure-count').value);
+            redrawEverything();
+        }
+
+        function setDuration(dur) {
+            currentDuration = dur;
+            ['whole', 'half', 'quarter', 'eighth', 'sixteenth'].forEach(d => {
+                let btn = document.getElementById('btn-' + d);
+                if (btn) btn.classList.remove('active');
+            });
+            let target = document.getElementById('btn-' + dur);
+            if (target) target.classList.add('active');
+        }
+
+        function toggleDot() {
+            isDotted = !isDotted;
+            let btn = document.getElementById('btn-dot');
+            if (isDotted) btn.classList.add('active');
+            else btn.classList.remove('active');
+        }
+
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('mode-note').classList.remove('active');
+            document.getElementById('mode-rest').classList.remove('active');
+            document.getElementById('mode-select').classList.remove('active');
+            document.getElementById('mode-' + mode).classList.add('active');
+        }
+
+        function redrawEverything() {
+            let { layoutMeasures, totalMeasures } = calculateLayout();
+
+            let finalMeasuresCount = Math.max(baseMeasureCount, totalMeasures);
+            let newWidth = Math.max(800, startX + (finalMeasuresCount * measureWidth) + 40);
+
+            svg.setAttribute('width', newWidth);
+            svg.setAttribute('viewBox', `0 0 ${newWidth} 330`);
+            bgRect.setAttribute('width', newWidth);
+
+            renderStructure(finalMeasuresCount);
+            renderNotes(layoutMeasures);
+            updateSelectionStatusText();
+        }
+
+        function renderStructure(totalMeasures) {
+            structureGroup.innerHTML = '';
+            let currentSvgWidth = parseInt(svg.getAttribute('width')) || 800;
+
+            if (selectedMeasureIndex !== null && selectedMeasureIndex < totalMeasures) {
+                let hlX = startX + (selectedMeasureIndex * measureWidth);
+                let hlRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                hlRect.setAttribute("x", hlX);
+                hlRect.setAttribute("y", 90);
+                hlRect.setAttribute("width", measureWidth);
+                hlRect.setAttribute("height", 100);
+                hlRect.setAttribute("fill", "rgba(255, 235, 59, 0.35)");
+                hlRect.setAttribute("stroke", "#ffc107");
+                hlRect.setAttribute("stroke-width", "2");
+                structureGroup.appendChild(hlRect);
+            }
+
+            for (let y = 100; y <= 180; y += 20) {
+                let line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                line.setAttribute("x1", 40);
+                line.setAttribute("y1", y);
+                line.setAttribute("x2", currentSvgWidth - 40);
+                line.setAttribute("y2", y);
+                line.setAttribute("stroke", "#333");
+                line.setAttribute("stroke-width", "2");
+                structureGroup.appendChild(line);
+            }
+
+            let clef = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            clef.setAttribute("x", 50);
+            clef.setAttribute("y", 165);
+            clef.setAttribute("font-size", "60");
+            clef.setAttribute("font-family", "serif");
+            clef.setAttribute("fill", "#333");
+            clef.textContent = "𝄞";
+            structureGroup.appendChild(clef);
+
+            let topNum = currentTimeSig.split('/')[0];
+            let botNum = currentTimeSig.split('/')[1];
+
+            let tsTop = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            tsTop.setAttribute("x", 95);
+            tsTop.setAttribute("y", 135);
+            tsTop.setAttribute("font-size", "22");
+            tsTop.setAttribute("font-weight", "bold");
+            tsTop.setAttribute("font-family", "serif");
+            tsTop.setAttribute("fill", "#333");
+            tsTop.textContent = topNum;
+            structureGroup.appendChild(tsTop);
+
+            let tsBot = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            tsBot.setAttribute("x", 95);
+            tsBot.setAttribute("y", 165);
+            tsBot.setAttribute("font-size", "22");
+            tsBot.setAttribute("font-weight", "bold");
+            tsBot.setAttribute("font-family", "serif");
+            tsBot.setAttribute("fill", "#333");
+            tsBot.textContent = botNum;
+            structureGroup.appendChild(tsBot);
+
+            for (let i = 1; i <= totalMeasures; i++) {
+                let barX = startX + (i * measureWidth);
+                let mIndex = i - 1;
+                let types = measureRepeats[mIndex] || [];
+
+                let barLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                barLine.setAttribute("x1", barX);
+                barLine.setAttribute("y1", 100);
+                barLine.setAttribute("x2", barX);
+                barLine.setAttribute("y2", 180);
+
+                if (types.includes('end')) {
+                    let dLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    dLine.setAttribute("x1", barX - 6);
+                    dLine.setAttribute("y1", 100);
+                    dLine.setAttribute("x2", barX - 6);
+                    dLine.setAttribute("y2", 180);
+                    dLine.setAttribute("stroke", "#000");
+                    dLine.setAttribute("stroke-width", "4");
+                    structureGroup.appendChild(dLine);
+
+                    barLine.setAttribute("stroke", "#000");
+                    barLine.setAttribute("stroke-width", "2");
+                    structureGroup.appendChild(barLine);
+
+                    [125, 155].forEach(dotY => {
+                        let dot1 = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                        dot1.setAttribute("cx", barX - 12);
+                        dot1.setAttribute("cy", dotY);
+                        dot1.setAttribute("r", "2.5");
+                        dot1.setAttribute("fill", "#000");
+                        structureGroup.appendChild(dot1);
+                    });
+                } else if (i === totalMeasures) {
+                    barLine.setAttribute("stroke", "#000");
+                    barLine.setAttribute("stroke-width", "4");
+                    structureGroup.appendChild(barLine);
+                } else {
+                    barLine.setAttribute("stroke", "#666");
+                    barLine.setAttribute("stroke-width", "2");
+                    structureGroup.appendChild(barLine);
+                }
+
+                if (types.includes('start')) {
+                    let leftBarX = barX - measureWidth;
+                    let startLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    startLine.setAttribute("x1", leftBarX + 6);
+                    startLine.setAttribute("y1", 100);
+                    startLine.setAttribute("x2", leftBarX + 6);
+                    startLine.setAttribute("y2", 180);
+                    startLine.setAttribute("stroke", "#000");
+                    startLine.setAttribute("stroke-width", "4");
+                    structureGroup.appendChild(startLine);
+
+                    [125, 155].forEach(dotY => {
+                        let dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                        dot.setAttribute("cx", leftBarX + 12);
+                        dot.setAttribute("cy", dotY);
+                        dot.setAttribute("r", "2.5");
+                        dot.setAttribute("fill", "#000");
+                        structureGroup.appendChild(dot);
+                    });
+                }
+
+                // 同一小節支援同時渲染房尾（支援多重屬性共存）
+                let endingType = types.find(t => t.startsWith('closed') || t.startsWith('open'));
+                if (endingType) {
+                    let leftX = barX - measureWidth;
+                    let textLabel = '1.';
+                    if (endingType === 'closed2' || endingType === 'open2') textLabel = '2.';
+                    if (endingType === 'open3') textLabel = '3.';
+
+                    let bracket = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                    
+                    if (endingType.startsWith('closed')) {
+                        bracket.setAttribute("d", `M ${leftX} 95 L ${leftX} 65 L ${barX} 65 L ${barX} 95`);
+                    } else {
+                        bracket.setAttribute("d", `M ${leftX} 95 L ${leftX} 65 L ${barX} 65`);
+                    }
+
+                    bracket.setAttribute("stroke", "#000");
+                    bracket.setAttribute("stroke-width", "1.5");
+                    bracket.setAttribute("fill", "none");
+                    structureGroup.appendChild(bracket);
+
+                    let txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    txt.setAttribute("x", leftX + 8);
+                    txt.setAttribute("y", 84);
+                    txt.setAttribute("font-size", "12");
+                    txt.setAttribute("font-weight", "bold");
+                    txt.textContent = textLabel;
+                    structureGroup.appendChild(txt);
+                }
+
+                if (types.includes('dc')) {
+                    let dcTxt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    dcTxt.setAttribute("x", barX - 50);
+                    dcTxt.setAttribute("y", 78);
+                    dcTxt.setAttribute("font-size", "14");
+                    dcTxt.setAttribute("font-weight", "bold");
+                    dcTxt.setAttribute("fill", "#d9534f");
+                    dcTxt.textContent = "D.C.";
+                    structureGroup.appendChild(dcTxt);
+                }
+            }
+        }
+
+        bgRect.addEventListener('click', (e) => {
+            const pt = svg.createSVGPoint();
+            pt.x = e.clientX;
+            pt.y = e.clientY;
+            const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+
+            const clickX = svgP.x;
+            const clickY = svgP.y;
+
+            let clickedMeasure = Math.floor((clickX - startX) / measureWidth);
+            if (clickedMeasure < 0) clickedMeasure = 0;
+
+            if (currentMode === 'select') {
+                selectedMeasureIndex = clickedMeasure;
+                selectedNoteId = null;
+                redrawEverything();
+                return;
+            }
+
+            selectedNoteId = null;
+
+            let snappedY = Math.round(clickY / 10) * 10;
+            let closestY = Object.keys(noteMap).reduce((prev, curr) => {
+                return (Math.abs(curr - snappedY) < Math.abs(prev - snappedY) ? curr : prev);
+            });
+            let targetFreq = noteMap[closestY].freq;
+
+            let maxBeats = getMaxBeatsPerMeasure();
+            let currentMeasureIndex = clickedMeasure;
+
+            let measures = [[]];
+            let currentMeasureBeats = 0;
+            steps.forEach(step => {
+                let b = getStepBeats(step.duration, step.dotted);
+                if (currentMeasureBeats + b > maxBeats + 0.0001) {
+                    measures.push([step]);
+                    currentMeasureBeats = b;
+                } else {
+                    measures[measures.length - 1].push(step);
+                    currentMeasureBeats += b;
+                }
+            });
+
+            if (currentMeasureIndex >= measures.length) {
+                steps.push({
+                    duration: currentDuration,
+                    dotted: isDotted,
+                    items: [{ id: nextNoteId++, y: Number(closestY), freq: targetFreq, type: currentMode }]
+                });
+            } else {
+                let measureStartX = startX + (currentMeasureIndex * measureWidth);
+                let availableWidth = measureWidth - 30;
+                let mSteps = measures[currentMeasureIndex];
+                let stepWidth = mSteps.length > 1 ? availableWidth / (mSteps.length + 1) : availableWidth / 2;
+
+                let targetStepIndex = -1;
+                mSteps.forEach((step, sIdx) => {
+                    let stepX = measureStartX + 20 + ((sIdx + 1) * stepWidth);
+                    if (Math.abs(clickX - stepX) < 25) {
+                        targetStepIndex = sIdx;
+                    }
+                });
+
+                if (targetStepIndex !== -1) {
+                    let globalStepIdx = 0;
+                    let mCount = 0;
+                    let bCount = 0;
+                    for (let i = 0; i < steps.length; i++) {
+                        let b = getStepBeats(steps[i].duration, steps[i].dotted);
+                        if (bCount + b > maxBeats + 0.0001) {
+                            mCount++;
+                            bCount = b;
+                        } else {
+                            bCount += b;
+                        }
+                        if (mCount === currentMeasureIndex) {
+                            if (mSteps.indexOf(steps[i]) === targetStepIndex) {
+                                globalStepIdx = i;
+                                break;
+                            }
+                        }
+                    }
+                    steps[globalStepIdx].items.push({
+                        id: nextNoteId++,
+                        y: Number(closestY),
+                        freq: targetFreq,
+                        type: currentMode
+                    });
+                } else {
+                    if (currentMeasureBeats + getStepBeats(currentDuration, isDotted) > maxBeats + 0.0001) {
+                        alert('此小節拍數已滿，系統將自動為您移至下一小節！');
+                    }
+                    steps.push({
+                        duration: currentDuration,
+                        dotted: isDotted,
+                        items: [{ id: nextNoteId++, y: Number(closestY), freq: targetFreq, type: currentMode }]
+                    });
+                }
+            }
+
+            redrawEverything();
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNoteId !== null) {
+                steps.forEach((step) => {
+                    step.items = step.items.filter(item => item.id !== selectedNoteId);
+                });
+                steps = steps.filter(step => step.items.length > 0);
+                selectedNoteId = null;
+                redrawEverything();
+                e.preventDefault();
+            }
+        });
+
+        function renderNotes(layoutMeasures) {
+            notesGroup.innerHTML = '';
+            
+            let beamedStepIds = new Set();
+            layoutMeasures.forEach(m => {
+                m.beamGroups.forEach(group => {
+                    if (group.length > 1) {
+                        group.forEach(step => beamedStepIds.add(step));
+                    }
+                });
+            });
+
+            layoutMeasures.forEach(m => {
+                m.steps.forEach(step => {
+                    let noteItems = step.items.filter(item => item.type === 'note');
+                    let restItems = step.items.filter(item => item.type === 'rest');
+
+                    noteItems.forEach((note) => {
+                        let isSelected = (note.id === selectedNoteId);
+                        let itemColor = isSelected ? '#dc3545' : '#007bff';
+
+                        let g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                        g.style.cursor = 'pointer';
+
+                        g.addEventListener('click', (ev) => {
+                            ev.stopPropagation();
+                            if (currentMode !== 'select') {
+                                selectedNoteId = note.id;
+                                redrawEverything();
+                            }
+                        });
+
+                        if (note.y === 200) {
+                            let ledgerLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                            ledgerLine.setAttribute("x1", step.x - 10);
+                            ledgerLine.setAttribute("y1", 200);
+                            ledgerLine.setAttribute("x2", step.x + 10);
+                            ledgerLine.setAttribute("y2", 200);
+                            ledgerLine.setAttribute("stroke", isSelected ? '#dc3545' : '#333');
+                            ledgerLine.setAttribute("stroke-width", "2");
+                            g.appendChild(ledgerLine);
+                        }
+
+                        let circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                        circle.setAttribute("cx", step.x);
+                        circle.setAttribute("cy", note.y);
+                        circle.setAttribute("r", "6");
+                        circle.setAttribute("fill", (step.duration === 'whole' || step.duration === 'half') ? 'white' : itemColor);
+                        circle.setAttribute("stroke", itemColor);
+                        circle.setAttribute("stroke-width", "2");
+                        g.appendChild(circle);
+
+                        if (step.dotted) {
+                            let dotY = note.y;
+                            if (dotY % 20 === 0) dotY -= 5;
+                            let dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                            dot.setAttribute("cx", step.x + 14);
+                            dot.setAttribute("cy", dotY);
+                            dot.setAttribute("r", "2.5");
+                            dot.setAttribute("fill", itemColor);
+                            g.appendChild(dot);
+                        }
+
+                        notesGroup.appendChild(g);
+                    });
+
+                    if (!beamedStepIds.has(step) && step.duration !== 'whole' && noteItems.length > 0) {
+                        let minY = Math.min(...noteItems.map(n => n.y));
+                        let stem = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                        stem.setAttribute("x1", step.x + 5);
+                        stem.setAttribute("y1", minY);
+                        stem.setAttribute("x2", step.x + 5);
+                        stem.setAttribute("y2", minY - 30);
+                        stem.setAttribute("stroke", '#007bff');
+                        stem.setAttribute("stroke-width", "2");
+                        notesGroup.appendChild(stem);
+
+                        let flagCount = 0;
+                        if (step.duration === 'eighth') flagCount = 1;
+                        if (step.duration === 'sixteenth') flagCount = 2;
+                        if (step.duration === 'thirty-second') flagCount = 3;
+
+                        for (let i = 0; i < flagCount; i++) {
+                            let flagY = (minY - 30) + (i * 6);
+                            let flag = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                            flag.setAttribute("d", `M ${step.x + 5} ${flagY} C ${step.x + 15} ${flagY + 5}, ${step.x + 12} ${flagY + 12}, ${step.x + 8} ${flagY + 15}`);
+                            flag.setAttribute("stroke", '#007bff');
+                            flag.setAttribute("stroke-width", "2");
+                            flag.setAttribute("fill", "none");
+                            notesGroup.appendChild(flag);
+                        }
+                    }
+
+                    restItems.forEach((rest) => {
+                        let isSelected = (rest.id === selectedNoteId);
+                        let itemColor = isSelected ? '#dc3545' : '#007bff';
+
+                        let g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                        g.style.cursor = 'pointer';
+
+                        g.addEventListener('click', (ev) => {
+                            ev.stopPropagation();
+                            if (currentMode !== 'select') {
+                                selectedNoteId = rest.id;
+                                redrawEverything();
+                            }
+                        });
+
+                        let restText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                        restText.setAttribute("x", step.x - 6);
+                        restText.setAttribute("y", 146);
+                        restText.setAttribute("font-size", "22");
+                        restText.setAttribute("font-weight", "bold");
+                        restText.setAttribute("fill", itemColor);
+
+                        let symbol = "𝄽";
+                        if (step.duration === 'whole') symbol = "𝄻";
+                        else if (step.duration === 'half') symbol = "𝄼";
+                        else if (step.duration === 'eighth') symbol = "𝄾";
+                        else if (step.duration === 'sixteenth') symbol = "𝄿";
+                        else if (step.duration === 'thirty-second') symbol = "𝄀";
+
+                        restText.textContent = symbol;
+                        g.appendChild(restText);
+
+                        if (step.dotted) {
+                            let dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                            dot.setAttribute("cx", step.x + 14);
+                            dot.setAttribute("cy", 140);
+                            dot.setAttribute("r", "2.5");
+                            dot.setAttribute("fill", itemColor);
+                            g.appendChild(dot);
+                        }
+
+                        notesGroup.appendChild(g);
+                    });
+                });
+
+                m.beamGroups.forEach(group => {
+                    if (group.length < 2) return;
+
+                    let stemTips = group.map(step => {
+                        let noteItems = step.items.filter(item => item.type === 'note');
+                        let minY = noteItems.length > 0 ? Math.min(...noteItems.map(n => n.y)) : 140;
+                        return { x: step.x + 5, y: minY - 30 };
+                    });
+
+                    stemTips.forEach(tip => {
+                        let stem = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                        stem.setAttribute("x1", tip.x);
+                        stem.setAttribute("y1", tip.y + 30);
+                        stem.setAttribute("x2", tip.x);
+                        stem.setAttribute("y2", tip.y);
+                        stem.setAttribute("stroke", '#007bff');
+                        stem.setAttribute("stroke-width", "2");
+                        notesGroup.appendChild(stem);
+                    });
+
+                    let firstTip = stemTips[0];
+                    let lastTip = stemTips[stemTips.length - 1];
+                    let mainBeam = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    mainBeam.setAttribute("x1", firstTip.x);
+                    mainBeam.setAttribute("y1", firstTip.y);
+                    mainBeam.setAttribute("x2", lastTip.x);
+                    mainBeam.setAttribute("y2", lastTip.y);
+                    mainBeam.setAttribute("stroke", '#007bff');
+                    mainBeam.setAttribute("stroke-width", "4");
+                    notesGroup.appendChild(mainBeam);
+
+                    let hasSixteenth = group.some(s => s.duration === 'sixteenth' || s.duration === 'thirty-second');
+                    if (hasSixteenth) {
+                        let subBeam1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                        subBeam1.setAttribute("x1", firstTip.x);
+                        subBeam1.setAttribute("y1", firstTip.y + 5);
+                        subBeam1.setAttribute("x2", lastTip.x);
+                        subBeam1.setAttribute("y2", lastTip.y + 5);
+                        subBeam1.setAttribute("stroke", '#007bff');
+                        subBeam1.setAttribute("stroke-width", "3");
+                        notesGroup.appendChild(subBeam1);
+                    }
+                });
+            });
+        }
+
+        function clearNotes() {
+            steps = [];
+            measureRepeats = {};
+            selectedNoteId = null;
+            selectedMeasureIndex = null;
+            redrawEverything();
+        }
+
+        function playMusic() {
+            if (steps.length === 0) {
+                alert('請先在譜面上點擊幾個音符再播放！');
+                return;
+            }
+
+            let bpm = parseInt(document.getElementById('tempo-bpm').value) || 120;
+            let beatDuration = 60 / bpm;
+
+            let { layoutMeasures } = calculateLayout();
+            let measureStepsList = layoutMeasures.map(m => m.steps);
+            let totalMeasures = measureStepsList.length;
+
+            let sequenceToPlay = [];
+            let repeatStartIndex = 0;
+            let closed1Measure = -1;
+            let closed2Measure = -1;
+            let open1Measure = -1;
+            let open2Measure = -1;
+            let open3Measure = -1;
+            let dcMeasure = -1;
+
+            for (let mIdx = 0; mIdx < totalMeasures; mIdx++) {
+                let types = measureRepeats[mIdx] || [];
+                if (types.includes('start')) repeatStartIndex = mIdx;
+                if (types.includes('closed1')) closed1Measure = mIdx;
+                if (types.includes('closed2')) closed2Measure = mIdx;
+                if (types.includes('open1')) open1Measure = mIdx;
+                if (types.includes('open2')) open2Measure = mIdx;
+                if (types.includes('open3')) open3Measure = mIdx;
+                if (types.includes('dc')) dcMeasure = mIdx;
+            }
+
+            let firstPassSteps = [];
+            for (let mIdx = 0; mIdx < totalMeasures; mIdx++) {
+                let types = measureRepeats[mIdx] || [];
+                if (types.includes('closed2') || types.includes('open2') || types.includes('open3')) continue;
+                firstPassSteps.push(...measureStepsList[mIdx]);
+            }
+
+            let repeatEndIndex = totalMeasures - 1;
+            for (let mIdx = 0; mIdx < totalMeasures; mIdx++) {
+                let types = measureRepeats[mIdx] || [];
+                if (types.includes('end')) repeatEndIndex = mIdx;
+            }
+
+            sequenceToPlay.push(...firstPassSteps);
+            
+            let hasRepeatEnd = false;
+            for (let mIdx = 0; mIdx < totalMeasures; mIdx++) {
+                if ((measureRepeats[mIdx] || []).includes('end')) hasRepeatEnd = true;
+            }
+
+            if (hasRepeatEnd || closed1Measure !== -1 || open1Measure !== -1) {
+                let repeatLoopSteps = [];
+                let skip1 = closed1Measure !== -1 ? closed1Measure : open1Measure;
+                for (let mIdx = repeatStartIndex; mIdx <= repeatEndIndex; mIdx++) {
+                    if (mIdx === skip1 || (measureRepeats[mIdx] || []).includes('open3')) continue;
+                    repeatLoopSteps.push(...measureStepsList[mIdx]);
+                }
+                sequenceToPlay.push(...repeatLoopSteps);
+            }
+
+            if (open3Measure !== -1) {
+                let repeatLoopSteps3 = [];
+                let skip1 = closed1Measure !== -1 ? closed1Measure : open1Measure;
+                let skip2 = open2Measure !== -1 ? open2Measure : closed2Measure;
+                for (let mIdx = repeatStartIndex; mIdx <= repeatEndIndex; mIdx++) {
+                    if (mIdx === skip1 || mIdx === skip2) continue;
+                    repeatLoopSteps3.push(...measureStepsList[mIdx]);
+                }
+                sequenceToPlay.push(...repeatLoopSteps3);
+            }
+
+            let hasDC = false;
+            for (let mIdx = 0; mIdx < totalMeasures; mIdx++) {
+                if ((measureRepeats[mIdx] || []).includes('dc')) hasDC = true;
+            }
+
+            if (hasDC) {
+                let dcTargetEnd = dcMeasure !== -1 ? dcMeasure : totalMeasures - 1;
+                let dcSteps = [];
+                for (let mIdx = 0; mIdx <= dcTargetEnd; mIdx++) {
+                    dcSteps.push(...(measureStepsList[mIdx] || []));
+                }
+                sequenceToPlay.push(...dcSteps);
+            }
+
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            let currentTime = audioCtx.currentTime + 0.1;
+
+            sequenceToPlay.forEach((step) => {
+                let stepDurationTime = getStepBeats(step.duration, step.dotted) * beatDuration;
+
+                step.items.forEach(item => {
+                    if (item.type === 'note') {
+                        const osc = audioCtx.createOscillator();
+                        const gain = audioCtx.createGain();
+
+                        osc.type = 'triangle';
+                        osc.frequency.value = item.freq;
+
+                        osc.connect(gain);
+                        gain.connect(audioCtx.destination);
+
+                        osc.start(currentTime);
+                        gain.gain.setValueAtTime(0.3, currentTime);
+                        gain.gain.exponentialRampToValueAtTime(0.0001, currentTime + stepDurationTime - 0.02);
+                        osc.stop(currentTime + stepDurationTime);
+                    }
+                });
+
+                currentTime += stepDurationTime;
+            });
+        }
+
+        redrawEverything();
+    </script>
+</body>
+</html>
